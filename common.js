@@ -19,206 +19,179 @@ function extractListingData() {
     transmission: "N/A",
     bodyType: "N/A",
     colour: "N/A",
-    drivetrain: "N/A"
+    drivetrain: "N/A",
+    condition: "N/A",
+    seats: "N/A",
+    fuel: "N/A"
   };
   
   try {
-    // EXTRACT TITLE
-    // Kijiji usually has the title in an h1 tag with specific attributes
-    const titleElement = document.querySelector('h1[itemprop="name"]') || 
-                        document.querySelector('h1[class*="title"]') ||
-                        document.querySelector('h1');
-    
+    // EXTRACT TITLE - From the h1 at top of page
+    const titleElement = document.querySelector('h1');
     if (titleElement) {
       data.title = titleElement.textContent.trim();
       console.log("Found title:", data.title);
+    }
+    
+    // EXTRACT PRICE - Look for the price display (usually has $ symbol)
+    const priceElements = document.querySelectorAll('*');
+    for (const el of priceElements) {
+      const text = el.textContent.trim();
+      // Match price format like $15,995
+      if (/^\$[\d,]+$/.test(text) && el.childElementCount === 0) {
+        data.price = text;
+        console.log("Found price:", data.price);
+        break;
+      }
+    }
+    
+    // EXTRACT DATE POSTED - Look for "Posted X min/hr/day ago"
+    const postedElements = Array.from(document.querySelectorAll('*'))
+      .filter(el => el.textContent.includes('Posted') && el.textContent.includes('ago'));
+    
+    if (postedElements.length > 0) {
+      const postedText = postedElements[0].textContent.trim();
+      if (/Posted\s+\d+\s+(min|hr|hrs|hour|hours|day|days)\s+ago/i.test(postedText)) {
+        data.datePosted = postedText;
+        console.log("Found date posted:", data.datePosted);
+      }
+    }
+    
+    // EXTRACT SELLER NAME - From the right side panel
+    // Look for business name or person name in seller info section
+    const sellerSection = document.querySelector('aside') || document.querySelector('[class*="seller"]');
+    if (sellerSection) {
+      // Look for a heading or prominent text that could be seller name
+      const headings = sellerSection.querySelectorAll('h2, h3, h4, a[href*="/u/"]');
+      for (const heading of headings) {
+        const text = heading.textContent.trim();
+        // Check if it looks like a business or person name
+        if (text && !text.includes('Google reviews') && !text.includes('Website')) {
+          data.sellerName = text;
+          console.log("Found seller name:", data.sellerName);
+          break;
+        }
+      }
       
-      // Try to extract year, make, model from title
-      const yearMatch = data.title.match(/\b(19|20)\d{2}\b/);
-      if (yearMatch) {
-        data.year = yearMatch[0];
-        
-        // Extract make/model after year
-        const afterYear = data.title.substring(data.title.indexOf(data.year) + 4).trim();
-        const parts = afterYear.split(' ');
-        if (parts.length > 0) {
-          data.make = parts[0];
-          if (parts.length > 1) {
-            // Join remaining parts as model (excluding common suffixes)
-            const modelParts = parts.slice(1).filter(part => 
-              !['sedan', 'suv', 'truck', 'coupe', 'hatchback'].includes(part.toLowerCase())
-            );
-            data.model = modelParts.join(' ');
-          }
-        }
+      // Extract location - look for postal code pattern
+      const locationMatch = sellerSection.textContent.match(/([A-Z]{2}-\d+),?\s*([^,]+),?\s*([A-Z]\d[A-Z]\s*\d[A-Z]\d)/);
+      if (locationMatch) {
+        data.location = `${locationMatch[1]}, ${locationMatch[2]}, ${locationMatch[3]}`;
+        console.log("Found location:", data.location);
       }
-    }
-    
-    // EXTRACT PRICE
-    // Kijiji typically has price in a specific span or div with class containing "price"
-    const priceElement = document.querySelector('[itemprop="price"]') ||
-                        document.querySelector('[class*="currentPrice"]') ||
-                        document.querySelector('[class*="price-amount"]') ||
-                        document.querySelector('span[class*="price"]');
-    
-    if (priceElement) {
-      // Get the content attribute if it exists (cleaner price value)
-      const priceContent = priceElement.getAttribute('content');
-      if (priceContent) {
-        data.price = `$${parseFloat(priceContent).toLocaleString()}`;
-      } else {
-        data.price = priceElement.textContent.trim();
-      }
-      console.log("Found price:", data.price);
-    }
-    
-    // EXTRACT LOCATION
-    // Kijiji shows location in address tags or specific location divs
-    const locationElement = document.querySelector('address') ||
-                           document.querySelector('[itemprop="address"]') ||
-                           document.querySelector('[class*="location"]') ||
-                           document.querySelector('svg[aria-label="Location"] + span');
-    
-    if (locationElement) {
-      data.location = locationElement.textContent.trim()
-        .replace(/\s+/g, ' ')  // Normalize whitespace
-        .split('\n')[0];       // Take first line if multiple
-      console.log("Found location:", data.location);
-    }
-    
-    // EXTRACT DATE POSTED
-    // Look for posted date information
-    const dateElement = document.querySelector('time[itemprop="datePosted"]') ||
-                       document.querySelector('[class*="datePosted"]') ||
-                       document.querySelector('time');
-    
-    if (dateElement) {
-      const dateTime = dateElement.getAttribute('datetime');
-      if (dateTime) {
-        // Format the date nicely
-        const date = new Date(dateTime);
-        const now = new Date();
-        const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-        
-        if (diffDays === 0) {
-          data.datePosted = "Today";
-        } else if (diffDays === 1) {
-          data.datePosted = "Yesterday";
-        } else if (diffDays < 7) {
-          data.datePosted = `${diffDays} days ago`;
-        } else {
-          data.datePosted = date.toLocaleDateString();
-        }
-      } else {
-        data.datePosted = dateElement.textContent.trim();
-      }
-      console.log("Found date:", data.datePosted);
     }
     
     // EXTRACT VEHICLE ATTRIBUTES
-    // Kijiji usually has a list of attributes with labels and values
-    const attributeContainers = document.querySelectorAll('dl[class*="attribute"], li[class*="attribute"], div[class*="attribute-list"] > div');
+    // Look for the attributes list with icons and category/value pairs
     
-    attributeContainers.forEach(container => {
-      // Look for dt/dd pairs or label/value patterns
-      const labels = container.querySelectorAll('dt, [class*="label"], span:first-child');
-      const values = container.querySelectorAll('dd, [class*="value"], span:last-child');
+    // Method 1: Look for elements with specific icons followed by text
+    const iconMappings = {
+      'Condition': ['condition'],
+      'Kilometres': ['mileage', 'kilometres'],
+      'Seats': ['seats'],
+      'Body Style': ['bodyType', 'body style'],
+      'Transmission': ['transmission'],
+      'Colour': ['colour', 'color'],
+      'Drivetrain': ['drivetrain'],
+      'Fuel': ['fuel'],
+      'Model': ['model']
+    };
+    
+    // Find all list items that might contain attributes
+    const attributeItems = document.querySelectorAll('li, div[class*="attribute"]');
+    
+    attributeItems.forEach(item => {
+      const text = item.textContent.trim();
       
-      labels.forEach((label, index) => {
-        if (values[index]) {
-          const labelText = label.textContent.trim().toLowerCase();
-          const valueText = values[index].textContent.trim();
-          
-          // Map Kijiji labels to our data structure
-          if (labelText.includes('kilometre') || labelText.includes('mileage')) {
-            data.mileage = valueText;
-          } else if (labelText.includes('make')) {
-            data.make = valueText;
-          } else if (labelText.includes('model')) {
-            data.model = valueText;
-          } else if (labelText.includes('year')) {
-            data.year = valueText;
-          } else if (labelText.includes('transmission')) {
-            data.transmission = valueText;
-          } else if (labelText.includes('body type') || labelText.includes('type')) {
-            data.bodyType = valueText;
-          } else if (labelText.includes('colour') || labelText.includes('color')) {
-            data.colour = valueText;
-          } else if (labelText.includes('drivetrain')) {
-            data.drivetrain = valueText;
+      // Check each known category
+      for (const [category, keywords] of Object.entries(iconMappings)) {
+        for (const keyword of keywords) {
+          if (text.toLowerCase().includes(keyword.toLowerCase())) {
+            // Extract the value after the category name
+            const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+            
+            if (lines.length >= 2) {
+              const categoryLine = lines.find(line => line.toLowerCase().includes(keyword.toLowerCase()));
+              const categoryIndex = lines.indexOf(categoryLine);
+              
+              if (categoryIndex !== -1 && categoryIndex < lines.length - 1) {
+                const value = lines[categoryIndex + 1];
+                
+                switch(category) {
+                  case 'Condition':
+                    data.condition = value;
+                    break;
+                  case 'Kilometres':
+                    data.mileage = value;
+                    break;
+                  case 'Seats':
+                    data.seats = value;
+                    break;
+                  case 'Body Style':
+                    data.bodyType = value;
+                    break;
+                  case 'Transmission':
+                    data.transmission = value;
+                    break;
+                  case 'Colour':
+                    data.colour = value;
+                    break;
+                  case 'Drivetrain':
+                    data.drivetrain = value;
+                    break;
+                  case 'Fuel':
+                    data.fuel = value;
+                    break;
+                  case 'Model':
+                    // Just store the full model string, don't parse it
+                    data.model = value;
+                    break;
+                }
+                console.log(`Found ${category}: ${value}`);
+                break;
+              }
+            }
           }
-        }
-      });
-    });
-    
-    // Alternative approach for attributes in table format
-    const rows = document.querySelectorAll('tr');
-    rows.forEach(row => {
-      const cells = row.querySelectorAll('td');
-      if (cells.length >= 2) {
-        const label = cells[0].textContent.trim().toLowerCase();
-        const value = cells[1].textContent.trim();
-        
-        if (label.includes('kilometre') || label.includes('mileage')) {
-          data.mileage = value;
-        } else if (label.includes('make') && data.make === "N/A") {
-          data.make = value;
-        } else if (label.includes('model') && data.model === "N/A") {
-          data.model = value;
-        } else if (label.includes('year') && data.year === "N/A") {
-          data.year = value;
-        } else if (label.includes('transmission')) {
-          data.transmission = value;
-        } else if (label.includes('body type')) {
-          data.bodyType = value;
-        } else if (label.includes('colour') || label.includes('color')) {
-          data.colour = value;
-        } else if (label.includes('drivetrain')) {
-          data.drivetrain = value;
         }
       }
     });
     
-    // EXTRACT SELLER NAME
-    // Kijiji shows seller info in profile sections
-    const sellerElement = document.querySelector('[class*="profile-name"]') ||
-                         document.querySelector('[class*="seller-name"]') ||
-                         document.querySelector('div[class*="profile"] h3') ||
-                         document.querySelector('a[href*="/u/"] span');
-    
-    if (sellerElement) {
-      data.sellerName = sellerElement.textContent.trim();
-      console.log("Found seller:", data.sellerName);
-    }
-    
-    // Try alternative seller extraction from "Contact" or "Seller" sections
-    if (data.sellerName === "N/A") {
-      const sellerSections = Array.from(document.querySelectorAll('h2, h3, h4'))
-        .filter(h => h.textContent.toLowerCase().includes('seller') || 
-                    h.textContent.toLowerCase().includes('contact'));
+    // Method 2: Try pattern matching on the page text as fallback
+    if (data.mileage === "N/A" || data.condition === "N/A") {
+      const bodyText = document.body.innerText;
       
-      sellerSections.forEach(section => {
-        if (data.sellerName !== "N/A") return;
-        
-        // Look for text after this heading
-        let nextElement = section.nextElementSibling;
-        let attempts = 0;
-        
-        while (nextElement && attempts < 5) {
-          const text = nextElement.textContent.trim();
-          // Check if it looks like a name (not a button, not too long)
-          if (text && 
-              text.length > 2 && 
-              text.length < 50 && 
-              !text.toLowerCase().includes('message') &&
-              !text.toLowerCase().includes('call') &&
-              !text.toLowerCase().includes('email') &&
-              /^[A-Za-z\s\.\-']+$/.test(text)) {
-            data.sellerName = text;
-            break;
+      // Look for patterns like "Condition\nUsed"
+      const conditionMatch = bodyText.match(/Condition\s*\n\s*([^\n]+)/i);
+      if (conditionMatch) {
+        data.condition = conditionMatch[1].trim();
+        console.log("Found condition (pattern):", data.condition);
+      }
+      
+      // Look for patterns like "Kilometres\n140,426"
+      const kmMatch = bodyText.match(/Kilometres?\s*\n\s*([\d,]+)/i);
+      if (kmMatch) {
+        data.mileage = kmMatch[1].trim();
+        console.log("Found kilometres (pattern):", data.mileage);
+      }
+      
+      // Similar patterns for other fields
+      const patternsToMatch = [
+        { pattern: /Seats\s*\n\s*([^\n]+)/i, field: 'seats' },
+        { pattern: /Body Style\s*\n\s*([^\n]+)/i, field: 'bodyType' },
+        { pattern: /Transmission\s*\n\s*([^\n]+)/i, field: 'transmission' },
+        { pattern: /Drivetrain\s*\n\s*([^\n]+)/i, field: 'drivetrain' },
+        { pattern: /Fuel\s*\n\s*([^\n]+)/i, field: 'fuel' },
+        { pattern: /Colou?r\s*\n\s*([^\n]+)/i, field: 'colour' },
+        { pattern: /Model\s*\n\s*([^\n]+)/i, field: 'model' }
+      ];
+      
+      patternsToMatch.forEach(({ pattern, field }) => {
+        if (data[field] === "N/A") {
+          const match = bodyText.match(pattern);
+          if (match) {
+            data[field] = match[1].trim();
+            console.log(`Found ${field} (pattern):`, data[field]);
           }
-          nextElement = nextElement.nextElementSibling;
-          attempts++;
         }
       });
     }
@@ -230,11 +203,4 @@ function extractListingData() {
   // Final validation and logging
   console.log("Final extracted data:", data);
   return data;
-}
-
-// Function for any additional helper functions
-function normalizePrice(priceText) {
-  // Remove currency symbols and convert to number
-  const price = priceText.replace(/[^0-9.,]/g, '').replace(',', '');
-  return parseFloat(price);
 }

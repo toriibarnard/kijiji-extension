@@ -297,11 +297,11 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         
-        // Use SheetJS library if available, otherwise fallback to CSV
+        // Use SheetJS library to export to Excel
         if (typeof XLSX !== 'undefined') {
           exportToExcel(listings);
         } else {
-          exportToCsv(listings);
+          showError("SheetJS library not found. Please ensure xlsx.full.min.js is in the extension folder.");
         }
       };
       
@@ -324,8 +324,8 @@ document.addEventListener('DOMContentLoaded', function() {
       // Format data for worksheet - include Listing ID column and additional Kijiji-specific fields
       const wsData = [
         ["Listing ID", "Title", "Year", "Make", "Model", "Price", "Location", 
-         "Mileage", "Transmission", "Body Type", "Colour", "Drivetrain",
-         "Seller Name", "Listing Date", "Listing URL", "Scraped Date"]
+         "Condition", "Mileage", "Transmission", "Body Type", "Colour", "Drivetrain",
+         "Seats", "Fuel", "Seller Name", "Listing Date", "Listing URL", "Scraped Date"]
       ];
       
       // Add each listing as a row - including the Listing ID
@@ -337,12 +337,15 @@ document.addEventListener('DOMContentLoaded', function() {
           listing.make || "",
           listing.model || "",
           listing.price || "",     
-          listing.location || "",  
+          listing.location || "",
+          listing.condition || "",
           listing.mileage || "",
           listing.transmission || "",
           listing.bodyType || "",
           listing.colour || "",
           listing.drivetrain || "",
+          listing.seats || "",
+          listing.fuel || "",
           listing.sellerName || "", 
           listing.datePosted || "", 
           listing.url || "",       
@@ -364,11 +367,14 @@ document.addEventListener('DOMContentLoaded', function() {
         {wch: 15}, // Model
         {wch: 12}, // Price
         {wch: 20}, // Location
+        {wch: 10}, // Condition
         {wch: 15}, // Mileage
         {wch: 12}, // Transmission
-        {wch: 12}, // Body Type
+        {wch: 15}, // Body Type
         {wch: 10}, // Colour
         {wch: 10}, // Drivetrain
+        {wch: 10}, // Seats
+        {wch: 10}, // Fuel
         {wch: 20}, // Seller Name
         {wch: 15}, // Listing Date
         {wch: 40}, // URL
@@ -412,77 +418,11 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     } catch (error) {
       console.error("Error creating Excel file:", error);
-      // Fallback to CSV if Excel fails
-      exportToCsv(listings);
+      showError("Failed to create Excel file. Please ensure xlsx.full.min.js is in the extension folder.");
     }
   }
 
-  // Export to CSV (fallback if SheetJS not available)
-  function exportToCsv(listings) {
-    // CSV headers - include Listing ID and Kijiji-specific fields
-    const headers = [
-      "Listing ID", "Title", "Year", "Make", "Model", "Price", "Location", 
-      "Mileage", "Transmission", "Body Type", "Colour", "Drivetrain",
-      "Seller Name", "Listing Date", "Listing URL", "Scraped Date"
-    ];
-    
-    const rows = [headers.join(',')];
-    
-    // Add each listing as a CSV row
-    listings.forEach(listing => {
-      const row = [
-        escapeCsvValue(listing.id || ""),
-        escapeCsvValue(listing.title || ""),
-        escapeCsvValue(listing.year || ""),
-        escapeCsvValue(listing.make || ""),
-        escapeCsvValue(listing.model || ""),
-        escapeCsvValue(listing.price || ""),
-        escapeCsvValue(listing.location || ""),
-        escapeCsvValue(listing.mileage || ""),
-        escapeCsvValue(listing.transmission || ""),
-        escapeCsvValue(listing.bodyType || ""),
-        escapeCsvValue(listing.colour || ""),
-        escapeCsvValue(listing.drivetrain || ""),
-        escapeCsvValue(listing.sellerName || ""),
-        escapeCsvValue(listing.datePosted || ""),
-        escapeCsvValue(listing.url || ""),
-        escapeCsvValue(new Date(listing.dateSaved).toLocaleString())
-      ];
-      
-      rows.push(row.join(','));
-    });
-    
-    const csvContent = rows.join('\n');
-    const blob = new Blob([csvContent], {type: 'text/csv'});
-    const url = URL.createObjectURL(blob);
-    
-    const date = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-    
-    // Create a main folder for all Kijiji data
-    const mainFolder = 'Kijiji Vehicles';
-    // Create a subfolder for data exports with today's date
-    const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
-    const dataDir = `${mainFolder}/data/${today}`;
-    
-    const filename = `${dataDir}/kijiji_vehicles_${date}.csv`;
-    
-    chrome.downloads.download({
-      url: url,
-      filename: filename,
-      saveAs: false
-    }, function(downloadId) {
-      if (chrome.runtime.lastError) {
-        console.error("CSV download error:", chrome.runtime.lastError);
-        showError("Failed to export: " + chrome.runtime.lastError.message);
-        return;
-      }
-      
-      exportScreenshots(listings);
-      showSuccess(`Exported ${listings.length} listings to ${filename}`);
-    });
-  }
-  
-  // Export screenshots
+  // Clear all listings
   function exportScreenshots(listings) {
     // Create a main folder for all Kijiji data
     const mainFolder = 'Kijiji Vehicles';
@@ -534,7 +474,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // If no screenshots to export, show success now
     setTimeout(function() {
       if (toExport === 0) {
-        showSuccess("Export complete! Data file saved (no screenshots).");
+        showSuccess("Export complete! Excel file saved (no screenshots).");
       }
     }, 500);
     
@@ -575,18 +515,6 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error("Error in clearAllListings:", error);
       showError("Error clearing listings: " + error.message);
     }
-  }
-  
-  // Escape CSV values to handle commas and quotes
-  function escapeCsvValue(value) {
-    if (!value) return '';
-    value = String(value);
-    // If value contains comma, newline, or quote, wrap in quotes
-    if (value.includes(',') || value.includes('\n') || value.includes('"')) {
-      // Double up any quotes
-      return '"' + value.replace(/"/g, '""') + '"';
-    }
-    return value;
   }
   
   // Show status message
