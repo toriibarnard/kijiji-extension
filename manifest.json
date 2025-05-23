@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Kijiji Vehicle Scraper",
+  "version": "1.0",
+  "description": "Scrape and save Kijiji vehicle listings to a consistent Excel file",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads",
+    "downloads.open",
+    "tabs",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://*.kijiji.ca/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "commands": {
+    "capture-listing": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Capture the current Kijiji listing"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*", "common.js"],
+      "matches": ["https://*.kijiji.ca/*"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
