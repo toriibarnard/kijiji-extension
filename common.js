@@ -13,9 +13,6 @@ function extractListingData() {
     sellerName: "N/A",
     mileage: "N/A",
     url: window.location.href,
-    year: "N/A",
-    make: "N/A",
-    model: "N/A",
     transmission: "N/A",
     bodyType: "N/A",
     colour: "N/A",
@@ -60,27 +57,85 @@ function extractListingData() {
       console.log("Found date posted:", data.datePosted);
     }
     
-    // EXTRACT SELLER NAME - From the right side panel
-    // Look for business name or person name in seller info section
-    const sellerSection = document.querySelector('aside') || document.querySelector('[class*="seller"]');
-    if (sellerSection) {
-      // Look for a heading or prominent text that could be seller name
-      const headings = sellerSection.querySelectorAll('h2, h3, h4, a[href*="/u/"]');
-      for (const heading of headings) {
-        const text = heading.textContent.trim();
-        // Check if it looks like a business or person name
-        if (text && !text.includes('Google reviews') && !text.includes('Website')) {
-          data.sellerName = text;
-          console.log("Found seller name:", data.sellerName);
+    // EXTRACT SELLER NAME AND LOCATION - From the right side panel
+    // Look for the section that contains Google reviews - that's usually where the seller name is
+    const googleReviewsElements = Array.from(document.querySelectorAll('*'))
+      .filter(el => el.textContent.includes('Google reviews'));
+    
+    if (googleReviewsElements.length > 0) {
+      // Get the parent container that has the seller info
+      let sellerContainer = googleReviewsElements[0];
+      
+      // Go up a few levels to find the container
+      for (let i = 0; i < 5 && sellerContainer; i++) {
+        sellerContainer = sellerContainer.parentElement;
+        if (!sellerContainer) break;
+        
+        // Look for seller name - it's usually in a heading before "Google reviews"
+        const headings = sellerContainer.querySelectorAll('h2, h3, h4');
+        for (const heading of headings) {
+          const text = heading.textContent.trim();
+          // Make sure it's not the Google reviews text itself
+          if (text && !text.includes('Google reviews') && !text.includes('(') && text.length > 2) {
+            data.sellerName = text;
+            console.log("Found seller name near Google reviews:", data.sellerName);
+            break;
+          }
+        }
+        
+        // If we found the seller name, stop looking
+        if (data.sellerName !== "N/A") break;
+      }
+    }
+    
+    // Alternative method to find seller name - look for text right before rating stars
+    if (data.sellerName === "N/A") {
+      const ratingElements = document.querySelectorAll('[class*="rating"], [aria-label*="rating"]');
+      ratingElements.forEach(el => {
+        if (data.sellerName !== "N/A") return;
+        
+        // Look at previous siblings
+        let prevSibling = el.previousElementSibling;
+        let attempts = 0;
+        while (prevSibling && attempts < 3) {
+          const text = prevSibling.textContent.trim();
+          if (text && text.length > 2 && text.length < 100 && !text.includes('Google') && !text.includes('reviews')) {
+            data.sellerName = text;
+            console.log("Found seller name before rating:", data.sellerName);
+            break;
+          }
+          prevSibling = prevSibling.previousElementSibling;
+          attempts++;
+        }
+      });
+    }
+    
+    // EXTRACT LOCATION - Look for address pattern
+    // Look for text that matches address format with street number, name, city, province, postal code
+    const addressPattern = /\d+\s+[A-Za-z\s]+(?:Drive|Dr|Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Court|Ct|Place|Pl|Way),?\s*[A-Za-z\s]+,?\s*NS,?\s*[A-Z]\d[A-Z]\s*\d[A-Z]\d/;
+    
+    // Search in the whole document
+    const allText = document.body.innerText;
+    const addressMatch = allText.match(addressPattern);
+    if (addressMatch) {
+      data.location = addressMatch[0].trim();
+      console.log("Found location (full address):", data.location);
+    }
+    
+    // Alternative: Look near the seller info
+    if (data.location === "N/A" && googleReviewsElements.length > 0) {
+      let searchContainer = googleReviewsElements[0];
+      for (let i = 0; i < 5 && searchContainer; i++) {
+        searchContainer = searchContainer.parentElement;
+        if (!searchContainer) break;
+        
+        const containerText = searchContainer.textContent;
+        const localAddressMatch = containerText.match(addressPattern);
+        if (localAddressMatch) {
+          data.location = localAddressMatch[0].trim();
+          console.log("Found location near seller info:", data.location);
           break;
         }
-      }
-      
-      // Extract location - look for postal code pattern
-      const locationMatch = sellerSection.textContent.match(/([A-Z]{2}-\d+),?\s*([^,]+),?\s*([A-Z]\d[A-Z]\s*\d[A-Z]\d)/);
-      if (locationMatch) {
-        data.location = `${locationMatch[1]}, ${locationMatch[2]}, ${locationMatch[3]}`;
-        console.log("Found location:", data.location);
       }
     }
     
@@ -96,8 +151,7 @@ function extractListingData() {
       'Transmission': ['transmission'],
       'Colour': ['colour', 'color'],
       'Drivetrain': ['drivetrain'],
-      'Fuel': ['fuel'],
-      'Model': ['model']
+      'Fuel': ['fuel']
     };
     
     // Find all list items that might contain attributes
@@ -145,10 +199,6 @@ function extractListingData() {
                   case 'Fuel':
                     data.fuel = value;
                     break;
-                  case 'Model':
-                    // Just store the full model string, don't parse it
-                    data.model = value;
-                    break;
                 }
                 console.log(`Found ${category}: ${value}`);
                 break;
@@ -184,8 +234,7 @@ function extractListingData() {
         { pattern: /Transmission\s*\n\s*([^\n]+)/i, field: 'transmission' },
         { pattern: /Drivetrain\s*\n\s*([^\n]+)/i, field: 'drivetrain' },
         { pattern: /Fuel\s*\n\s*([^\n]+)/i, field: 'fuel' },
-        { pattern: /Colou?r\s*\n\s*([^\n]+)/i, field: 'colour' },
-        { pattern: /Model\s*\n\s*([^\n]+)/i, field: 'model' }
+        { pattern: /Colou?r\s*\n\s*([^\n]+)/i, field: 'colour' }
       ];
       
       patternsToMatch.forEach(({ pattern, field }) => {

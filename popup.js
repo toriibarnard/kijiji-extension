@@ -364,21 +364,18 @@ document.addEventListener('DOMContentLoaded', function() {
       const wb = XLSX.utils.book_new();
       console.log("Workbook created");
       
-      // Format data for worksheet - include Listing ID column and additional Kijiji-specific fields
+      // Format data for worksheet - REMOVED Year, Make, Model columns
       const wsData = [
-        ["Listing ID", "Title", "Year", "Make", "Model", "Price", "Location", 
+        ["Listing ID", "Title", "Price", "Location", 
          "Condition", "Mileage", "Transmission", "Body Type", "Colour", "Drivetrain",
          "Seats", "Fuel", "Seller Name", "Listing Date", "Listing URL", "Scraped Date"]
       ];
       
-      // Add each listing as a row - including the Listing ID
+      // Add each listing as a row - REMOVED year, make, model
       listings.forEach(listing => {
         const row = [
           listing.id || "",                    // Listing ID - matches screenshot filename
           listing.title || "",     
-          listing.year || "",
-          listing.make || "",
-          listing.model || "",
           listing.price || "",     
           listing.location || "",
           listing.condition || "",
@@ -414,24 +411,21 @@ document.addEventListener('DOMContentLoaded', function() {
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       console.log("Worksheet created");
       
-      // Set column widths for better readability
+      // Set column widths for better readability - ADJUSTED for removed columns
       const wscols = [
         {wch: 20}, // Listing ID
-        {wch: 35}, // Title
-        {wch: 8},  // Year
-        {wch: 12}, // Make
-        {wch: 15}, // Model
+        {wch: 45}, // Title (made wider since it has year/make/model)
         {wch: 12}, // Price
-        {wch: 20}, // Location
+        {wch: 35}, // Location (made wider for full addresses)
         {wch: 10}, // Condition
         {wch: 15}, // Mileage
         {wch: 12}, // Transmission
         {wch: 15}, // Body Type
-        {wch: 10}, // Colour
+        {wch: 15}, // Colour
         {wch: 10}, // Drivetrain
         {wch: 10}, // Seats
         {wch: 10}, // Fuel
-        {wch: 20}, // Seller Name
+        {wch: 30}, // Seller Name (made wider for business names)
         {wch: 15}, // Listing Date
         {wch: 40}, // URL
         {wch: 20}  // Scraped Date
