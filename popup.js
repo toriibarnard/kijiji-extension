@@ -1,5 +1,12 @@
 // popup.js - Handles popup UI and interactions
 document.addEventListener('DOMContentLoaded', function() {
+   // DEBUG: Check if XLSX loaded
+  console.log("XLSX library loaded?", typeof XLSX !== 'undefined');
+  if (typeof XLSX !== 'undefined') {
+    console.log("XLSX version:", XLSX.version);
+  } else {
+    console.error("XLSX is not defined - xlsx.full.min.js may not be loaded");
+  }
   // UI Elements
   const captureBtn = document.getElementById('captureBtn');
   const viewListingsBtn = document.getElementById('viewListingsBtn');
@@ -104,6 +111,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Function to capture Kijiji listing
   function captureKijijiListing() {
+    console.log("Starting capture process...");
     showStatus('Extracting data...');
     
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
@@ -115,6 +123,8 @@ document.addEventListener('DOMContentLoaded', function() {
       const tabId = tabs[0].id;
       const url = tabs[0].url;
       
+      console.log("Current URL:", url);
+      
       // Generate a listing ID that will be used for both database and screenshot filename
       const listingId = generateListingId(url);
       
@@ -125,9 +135,11 @@ document.addEventListener('DOMContentLoaded', function() {
       }, () => {
         if (chrome.runtime.lastError) {
           console.error("Failed to inject common.js:", chrome.runtime.lastError);
-          showError("Failed to inject extraction script.");
+          showError("Failed to inject extraction script: " + chrome.runtime.lastError.message);
           return;
         }
+        
+        console.log("common.js injected successfully");
         
         // Now execute the extraction function from common.js
         chrome.scripting.executeScript({
@@ -136,7 +148,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }, (results) => {
           if (chrome.runtime.lastError) {
             console.error("Script execution error:", chrome.runtime.lastError);
-            showError("Error: " + chrome.runtime.lastError.message);
+            showError("Extraction error: " + chrome.runtime.lastError.message);
             return;
           }
           
@@ -158,11 +170,13 @@ document.addEventListener('DOMContentLoaded', function() {
           try {
             chrome.tabs.captureVisibleTab({format: 'png'}, function(screenshotDataUrl) {
               if (chrome.runtime.lastError || !screenshotDataUrl) {
-                console.log("Screenshot error, saving without image");
+                console.log("Screenshot error:", chrome.runtime.lastError);
+                console.log("Saving without image");
                 saveListing(listingData, null);
                 return;
               }
               
+              console.log("Screenshot captured successfully");
               saveListing(listingData, screenshotDataUrl);
             });
           } catch (error) {
@@ -193,6 +207,8 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Save listing to IndexedDB
   function saveListing(listingData, screenshotDataUrl) {
+    console.log("saveListing called with:", listingData.id);
+    
     if (!db) {
       showError("Database not available. Please try again.");
       return;
@@ -276,6 +292,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Export all listings
   function exportAllListings() {
+    console.log("exportAllListings called");
+    console.log("XLSX available?", typeof XLSX !== 'undefined');
+    
     if (!db) {
       showError("Database not available. Please try again.");
       return;
@@ -297,11 +316,27 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         
-        // Use SheetJS library to export to Excel
-        if (typeof XLSX !== 'undefined') {
-          exportToExcel(listings);
+        // Check if XLSX is loaded, if not try to wait a bit
+        if (typeof XLSX === 'undefined') {
+          console.error("XLSX not loaded, checking if script exists...");
+          
+          // Check if the script tag exists
+          const xlsxScript = document.querySelector('script[src="xlsx.full.min.js"]');
+          if (!xlsxScript) {
+            showError("xlsx.full.min.js is not included in popup.html");
+            return;
+          }
+          
+          // Try one more time after a short delay
+          setTimeout(() => {
+            if (typeof XLSX !== 'undefined') {
+              exportToExcel(listings);
+            } else {
+              showError("SheetJS library failed to load. Please check that xlsx.full.min.js is in the extension folder and reload the extension.");
+            }
+          }, 500);
         } else {
-          showError("SheetJS library not found. Please ensure xlsx.full.min.js is in the extension folder.");
+          exportToExcel(listings);
         }
       };
       
@@ -317,9 +352,17 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Export to Excel using SheetJS
   function exportToExcel(listings) {
+    console.log("exportToExcel called with", listings.length, "listings");
+    console.log("XLSX methods available:", {
+      utils: typeof XLSX.utils,
+      write: typeof XLSX.write,
+      version: XLSX.version
+    });
+    
     try {
       // Create workbook
       const wb = XLSX.utils.book_new();
+      console.log("Workbook created");
       
       // Format data for worksheet - include Listing ID column and additional Kijiji-specific fields
       const wsData = [
@@ -352,11 +395,24 @@ document.addEventListener('DOMContentLoaded', function() {
           new Date(listing.dateSaved).toLocaleString() 
         ];
         
-        wsData.push(row);
+        // Ensure no cell exceeds Excel's limit
+        const maxCellLength = 32000;
+        const truncatedRow = row.map(cell => {
+          if (typeof cell === 'string' && cell.length > maxCellLength) {
+            console.warn(`Truncating cell from ${cell.length} to ${maxCellLength} characters`);
+            return cell.substring(0, maxCellLength) + '...';
+          }
+          return cell;
+        });
+        
+        wsData.push(truncatedRow);
       });
+      
+      console.log("Data prepared, creating worksheet");
       
       // Create worksheet
       const ws = XLSX.utils.aoa_to_sheet(wsData);
+      console.log("Worksheet created");
       
       // Set column widths for better readability
       const wscols = [
@@ -384,9 +440,12 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Add worksheet to workbook
       XLSX.utils.book_append_sheet(wb, ws, "Kijiji Vehicle Listings");
+      console.log("Worksheet added to workbook");
       
       // Generate Excel file
+      console.log("Writing Excel file");
       const excelData = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      console.log("Excel data generated");
       
       // Save file with timestamp in name
       const blob = new Blob([excelData], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
@@ -402,6 +461,8 @@ document.addEventListener('DOMContentLoaded', function() {
       
       const filename = `${dataDir}/kijiji_vehicles_nova_scotia_${date}.xlsx`;
       
+      console.log("Downloading file:", filename);
+      
       chrome.downloads.download({
         url: url,
         filename: filename,
@@ -413,16 +474,18 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         }
         
+        console.log("Excel file downloaded successfully");
         exportScreenshots(listings);
         showSuccess(`Exported ${listings.length} listings to ${filename}`);
       });
     } catch (error) {
-      console.error("Error creating Excel file:", error);
-      showError("Failed to create Excel file. Please ensure xlsx.full.min.js is in the extension folder.");
+      console.error("Error in exportToExcel:", error);
+      console.error("Error stack:", error.stack);
+      showError("Failed to create Excel file: " + error.message);
     }
   }
-
-  // Clear all listings
+  
+  // Export screenshots
   function exportScreenshots(listings) {
     // Create a main folder for all Kijiji data
     const mainFolder = 'Kijiji Vehicles';
@@ -519,6 +582,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Show status message
   function showStatus(message) {
+    console.log("showStatus:", message);
     result.classList.add('hidden');
     status.classList.remove('hidden');
     statusText.textContent = message;
@@ -526,6 +590,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Show success message
   function showSuccess(message) {
+    console.log("showSuccess:", message);
     status.classList.add('hidden');
     result.classList.remove('hidden');
     resultText.textContent = message;
@@ -533,7 +598,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Show error message
   function showError(message) {
-    console.error(message);
+    console.error("showError:", message);
     status.classList.add('hidden');
     result.classList.remove('hidden');
     resultText.textContent = message;

@@ -46,15 +46,18 @@ function extractListingData() {
     }
     
     // EXTRACT DATE POSTED - Look for "Posted X min/hr/day ago"
-    const postedElements = Array.from(document.querySelectorAll('*'))
-      .filter(el => el.textContent.includes('Posted') && el.textContent.includes('ago'));
+    // Be more specific to avoid capturing JSON-LD data
+    const postedElements = Array.from(document.querySelectorAll('span, div, p'))
+      .filter(el => {
+        const text = el.textContent.trim();
+        // Make sure it's not too long (to avoid JSON data) and matches the pattern
+        return text.length < 50 && 
+               /^Posted\s+\d+\s+(min|mins|hr|hrs|hour|hours|day|days)\s+ago$/i.test(text);
+      });
     
     if (postedElements.length > 0) {
-      const postedText = postedElements[0].textContent.trim();
-      if (/Posted\s+\d+\s+(min|hr|hrs|hour|hours|day|days)\s+ago/i.test(postedText)) {
-        data.datePosted = postedText;
-        console.log("Found date posted:", data.datePosted);
-      }
+      data.datePosted = postedElements[0].textContent.trim();
+      console.log("Found date posted:", data.datePosted);
     }
     
     // EXTRACT SELLER NAME - From the right side panel
@@ -199,6 +202,15 @@ function extractListingData() {
   } catch (error) {
     console.error("Error during extraction:", error);
   }
+  
+  // Truncate any fields that are too long for Excel (32767 character limit)
+  const maxLength = 32000; // Leave some buffer
+  Object.keys(data).forEach(key => {
+    if (typeof data[key] === 'string' && data[key].length > maxLength) {
+      console.warn(`Field ${key} exceeded Excel limit, truncating from ${data[key].length} to ${maxLength} characters`);
+      data[key] = data[key].substring(0, maxLength) + '...';
+    }
+  });
   
   // Final validation and logging
   console.log("Final extracted data:", data);

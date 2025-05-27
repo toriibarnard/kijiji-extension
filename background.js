@@ -3,13 +3,15 @@
 // Listen for the keyboard shortcut command
 chrome.commands.onCommand.addListener((command) => {
   if (command === "capture-listing") {
-    console.log("Keyboard shortcut captured: Ctrl+Shift+S / Cmd+Shift+S");
+    console.log("[BG] Keyboard shortcut captured: Ctrl+Shift+S / Cmd+Shift+S");
     captureAndSave();
   }
 });
 
 // Capture the current listing
 function captureAndSave() {
+  console.log("[BG] captureAndSave called");
+  
   // Check if we're on a Kijiji page
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
     if (!tabs || tabs.length === 0) {
@@ -20,6 +22,8 @@ function captureAndSave() {
     const currentTab = tabs[0];
     const tabId = currentTab.id;
     const url = currentTab.url;
+    
+    console.log("[BG] Current URL:", url);
     
     // Only proceed if we're on Kijiji
     if (!url.includes('kijiji.ca')) {
@@ -35,6 +39,7 @@ function captureAndSave() {
     
     // Generate a listing ID that will be used for both database and screenshot filename
     const listingId = generateListingId(url);
+    console.log("[BG] Generated listing ID:", listingId);
     
     // Show notification that we're starting to extract data
     showNotification("Kijiji Vehicle Scraper", "Extracting listing data...");
@@ -45,10 +50,12 @@ function captureAndSave() {
       files: ['common.js']
     }, () => {
       if (chrome.runtime.lastError) {
-        console.error("Failed to inject common.js:", chrome.runtime.lastError);
+        console.error("[BG] Failed to inject common.js:", chrome.runtime.lastError);
         showNotification("Error", "Failed to inject extraction script.");
         return;
       }
+      
+      console.log("[BG] common.js injected successfully");
       
       // Now execute the extraction function
       chrome.scripting.executeScript({
@@ -56,13 +63,13 @@ function captureAndSave() {
         function: () => extractListingData() // This will use the injected function
       }, (results) => {
         if (chrome.runtime.lastError) {
-          console.error("Script execution error:", chrome.runtime.lastError);
+          console.error("[BG] Script execution error:", chrome.runtime.lastError);
           showNotification("Error", "Failed to extract data: " + chrome.runtime.lastError.message);
           return;
         }
         
         if (!results || !results[0] || !results[0].result) {
-          console.error("No data extracted");
+          console.error("[BG] No data extracted");
           showNotification("Error", "Could not extract listing data. Please try again.");
           return;
         }
@@ -72,16 +79,17 @@ function captureAndSave() {
         listingData.dateSaved = new Date().toISOString();
         listingData.id = listingId;  // Use our generated ID
         
-        console.log("Data extracted:", listingData);
+        console.log("[BG] Data extracted:", listingData);
         
         // Take screenshot
         chrome.tabs.captureVisibleTab({format: 'png'}, function(screenshotDataUrl) {
           if (chrome.runtime.lastError || !screenshotDataUrl) {
-            console.log("Screenshot error, saving without image");
+            console.log("[BG] Screenshot error, saving without image");
             saveListing(listingData, null);
             return;
           }
           
+          console.log("[BG] Screenshot captured");
           // Save the listing data
           saveListing(listingData, screenshotDataUrl);
         });
@@ -109,19 +117,19 @@ function generateListingId(url) {
 
 // Save listing to IndexedDB
 function saveListing(listingData, screenshotDataUrl, callback) {
-  console.log("Saving listing to database");
+  console.log("[BG] Saving listing to database");
   
   // Open the database
   const request = indexedDB.open('KijijiVehicleDB', 1);
   
   request.onerror = function(event) {
-    console.error("Database error:", event.target.error);
+    console.error("[BG] Database error:", event.target.error);
     showNotification("Error", "Failed to open database. Please check your browser settings.");
     if (callback) callback();
   };
   
   request.onupgradeneeded = function(event) {
-    console.log("Database upgrade needed");
+    console.log("[BG] Database upgrade needed");
     const db = event.target.result;
     
     // Create object stores if they don't exist
@@ -137,13 +145,22 @@ function saveListing(listingData, screenshotDataUrl, callback) {
   
   request.onsuccess = function(event) {
     const db = event.target.result;
+    console.log("[BG] Database opened for saving");
     
     try {
       const transaction = db.transaction(['listings', 'screenshots'], 'readwrite');
       
       // Save listing data
       const listingsStore = transaction.objectStore('listings');
-      listingsStore.put(listingData);
+      const putRequest = listingsStore.put(listingData);
+      
+      putRequest.onsuccess = function() {
+        console.log("[BG] Listing data saved successfully");
+      };
+      
+      putRequest.onerror = function(e) {
+        console.error("[BG] Error saving listing data:", e);
+      };
       
       // If we have a screenshot, save it separately
       if (screenshotDataUrl) {
@@ -158,7 +175,7 @@ function saveListing(listingData, screenshotDataUrl, callback) {
       }
       
       transaction.oncomplete = function() {
-        console.log("Listing saved successfully");
+        console.log("[BG] Transaction complete - listing saved successfully");
         updateBadge();
         showNotification("Success", `Listing saved successfully! ID: ${listingData.id}`);
         
@@ -167,12 +184,12 @@ function saveListing(listingData, screenshotDataUrl, callback) {
       };
       
       transaction.onerror = function(event) {
-        console.error("Transaction error:", event.target.error);
+        console.error("[BG] Transaction error:", event.target.error);
         showNotification("Error", "Failed to save listing: " + event.target.error.message);
         if (callback) callback();
       };
     } catch (error) {
-      console.error("Error in saveListing:", error);
+      console.error("[BG] Error in saveListing:", error);
       showNotification("Error", "Error saving listing: " + error.message);
       if (callback) callback();
     }
@@ -181,6 +198,8 @@ function saveListing(listingData, screenshotDataUrl, callback) {
 
 // Function to save a screenshot directly to the organized folder
 function saveScreenshotToFolder(screenshotDataUrl, listingId) {
+  console.log("[BG] Saving screenshot to folder");
+  
   // Create a main folder for all Kijiji data
   const mainFolder = 'Kijiji Vehicles';
   // Create a subfolder for screenshots with today's date
@@ -202,19 +221,20 @@ function saveScreenshotToFolder(screenshotDataUrl, listingId) {
         conflictAction: 'overwrite'
       }, function(downloadId) {
         if (chrome.runtime.lastError) {
-          console.error("Screenshot download error:", chrome.runtime.lastError);
+          console.error("[BG] Screenshot download error:", chrome.runtime.lastError);
           return;
         }
-        console.log(`Screenshot saved to ${screenshotFilename}`);
+        console.log(`[BG] Screenshot saved to ${screenshotFilename}`);
       });
     })
     .catch(err => {
-      console.error("Error saving screenshot:", err);
+      console.error("[BG] Error saving screenshot:", err);
     });
 }
 
 // Show notification to user
 function showNotification(title, message) {
+  console.log(`[BG] Notification: ${title} - ${message}`);
   chrome.notifications.create({
     type: 'basic',
     iconUrl: 'icons/icon128.png',
@@ -225,6 +245,7 @@ function showNotification(title, message) {
 
 // Update the badge to show the number of saved listings
 function updateBadge() {
+  console.log("[BG] Updating badge");
   const request = indexedDB.open('KijijiVehicleDB', 1);
   
   request.onsuccess = function(event) {
@@ -237,11 +258,12 @@ function updateBadge() {
       
       countRequest.onsuccess = function() {
         const count = countRequest.result;
+        console.log(`[BG] Badge count: ${count}`);
         chrome.action.setBadgeText({text: count.toString()});
         chrome.action.setBadgeBackgroundColor({color: '#4CAF50'});
       };
     } catch (error) {
-      console.error("Error updating badge:", error);
+      console.error("[BG] Error updating badge:", error);
     }
   };
 }
