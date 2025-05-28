@@ -57,84 +57,199 @@ function extractListingData() {
       console.log("Found date posted:", data.datePosted);
     }
     
-    // EXTRACT SELLER NAME AND LOCATION - From the right side panel
-    // Look for the section that contains Google reviews - that's usually where the seller name is
-    const googleReviewsElements = Array.from(document.querySelectorAll('*'))
-      .filter(el => el.textContent.includes('Google reviews'));
+    // EXTRACT LOCATION - Look for text ending with postal code OR ", NS" pattern
+    // NS postal codes: B + digit + letter + space + digit + letter + digit
+    const nsPostalCodePattern = /B\d[A-Z]\s*\d[A-Z]\d/;
     
-    if (googleReviewsElements.length > 0) {
-      // Get the parent container that has the seller info
-      let sellerContainer = googleReviewsElements[0];
+    // Find all text elements
+    const allTextElements = Array.from(document.querySelectorAll('*'))
+      .filter(el => el.childElementCount === 0 && el.textContent.trim());
+    
+    for (const el of allTextElements) {
+      const text = el.textContent.trim();
       
-      // Go up a few levels to find the container
-      for (let i = 0; i < 5 && sellerContainer; i++) {
-        sellerContainer = sellerContainer.parentElement;
-        if (!sellerContainer) break;
-        
-        // Look for seller name - it's usually in a heading before "Google reviews"
-        const headings = sellerContainer.querySelectorAll('h2, h3, h4');
-        for (const heading of headings) {
-          const text = heading.textContent.trim();
-          // Make sure it's not the Google reviews text itself
-          if (text && !text.includes('Google reviews') && !text.includes('(') && text.length > 2) {
-            data.sellerName = text;
-            console.log("Found seller name near Google reviews:", data.sellerName);
-            break;
-          }
-        }
-        
-        // If we found the seller name, stop looking
-        if (data.sellerName !== "N/A") break;
+      // Check if text ends with NS postal code
+      const postalMatch = text.match(/(.*?)(B\d[A-Z]\s*\d[A-Z]\d)\s*$/);
+      if (postalMatch && text.length < 200) {
+        data.location = text;
+        console.log("Found location ending with postal code:", data.location);
+        break;
+      }
+      
+      // Check if text ends with ", NS" (for locations without postal code)
+      if (text.endsWith(', NS') && text.length < 100) {
+        data.location = text;
+        console.log("Found location ending with , NS:", data.location);
+        break;
+      }
+      
+      // Check for common Halifax area locations
+      const halifaxPattern = /, (Halifax|Dartmouth|Bedford|Lower Sackville|Cole Harbour|Spryfield|Clayton Park|Fairview|Hammonds Plains)$/i;
+      if (halifaxPattern.test(text) && text.length < 100) {
+        data.location = text;
+        console.log("Found Halifax area location:", data.location);
+        break;
       }
     }
     
-    // Alternative method to find seller name - look for text right before rating stars
+    // EXTRACT SELLER NAME - Multiple strategies
+    
+    // Strategy 1: Look for "Listed By" section
+    const listedByElements = Array.from(document.querySelectorAll('*'))
+      .filter(el => el.textContent.trim() === 'Listed By');
+    
+    if (listedByElements.length > 0) {
+      console.log("Found 'Listed By' section");
+      const listedByEl = listedByElements[0];
+      
+      // Look for the next text element after "Listed By"
+      let nextElement = listedByEl.nextElementSibling;
+      let attempts = 0;
+      
+      while (nextElement && attempts < 10) {
+        // Skip if it's a container with many children
+        if (nextElement.childElementCount > 3) {
+          nextElement = nextElement.nextElementSibling;
+          attempts++;
+          continue;
+        }
+        
+        const text = nextElement.textContent.trim();
+        
+        // Check if this looks like a name (not "Owner" or other labels)
+        if (text && 
+            text.length >= 2 && 
+            text.length < 100 && 
+            text !== 'Owner' &&
+            text !== 'Dealer' &&
+            !text.includes('View all listings') &&
+            !text.includes('★')) {
+          
+          data.sellerName = text;
+          console.log("Found seller name in Listed By section:", data.sellerName);
+          break;
+        }
+        
+        // Also check children of this element
+        const childTexts = Array.from(nextElement.querySelectorAll('*'))
+          .filter(el => el.childElementCount === 0)
+          .map(el => el.textContent.trim())
+          .filter(text => text && text.length >= 2 && text.length < 100);
+        
+        if (childTexts.length > 0) {
+          data.sellerName = childTexts[0];
+          console.log("Found seller name in Listed By children:", data.sellerName);
+          break;
+        }
+        
+        nextElement = nextElement.nextElementSibling;
+        attempts++;
+      }
+    }
+    
+    // Strategy 2: Look for the prominent text before rating numbers (in the top right section)
     if (data.sellerName === "N/A") {
-      const ratingElements = document.querySelectorAll('[class*="rating"], [aria-label*="rating"]');
-      ratingElements.forEach(el => {
-        if (data.sellerName !== "N/A") return;
+      const ratingNumberPattern = /^\d+\.\d+$/; // Matches 4.3
+      const reviewCountPattern = /^\(\d+\)$/;   // Matches (925)
+      
+      // Find elements with ratings
+      const ratingElements = Array.from(document.querySelectorAll('*'))
+        .filter(el => {
+          const text = el.textContent.trim();
+          return (ratingNumberPattern.test(text) || reviewCountPattern.test(text)) && 
+                 el.childElementCount === 0;
+        });
+      
+      console.log("Found rating elements:", ratingElements.length);
+      
+      for (const ratingEl of ratingElements) {
+        if (data.sellerName !== "N/A") break;
         
         // Look at previous siblings
-        let prevSibling = el.previousElementSibling;
+        let prevElement = ratingEl.previousElementSibling;
         let attempts = 0;
-        while (prevSibling && attempts < 3) {
-          const text = prevSibling.textContent.trim();
-          if (text && text.length > 2 && text.length < 100 && !text.includes('Google') && !text.includes('reviews')) {
+        
+        while (prevElement && attempts < 5) {
+          const text = prevElement.textContent.trim();
+          
+          // Check if this could be a seller name
+          if (text && 
+              text.length >= 2 && 
+              text.length < 100 && 
+              !text.includes('★') &&
+              !text.includes('Google') &&
+              !text.includes('reviews') &&
+              !text.includes('Website') &&
+              !ratingNumberPattern.test(text) &&
+              !reviewCountPattern.test(text)) {
+            
             data.sellerName = text;
             console.log("Found seller name before rating:", data.sellerName);
             break;
           }
-          prevSibling = prevSibling.previousElementSibling;
+          
+          prevElement = prevElement.previousElementSibling;
           attempts++;
         }
-      });
-    }
-    
-    // EXTRACT LOCATION - Look for address pattern
-    // Look for text that matches address format with street number, name, city, province, postal code
-    const addressPattern = /\d+\s+[A-Za-z\s]+(?:Drive|Dr|Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Court|Ct|Place|Pl|Way),?\s*[A-Za-z\s]+,?\s*NS,?\s*[A-Z]\d[A-Z]\s*\d[A-Z]\d/;
-    
-    // Search in the whole document
-    const allText = document.body.innerText;
-    const addressMatch = allText.match(addressPattern);
-    if (addressMatch) {
-      data.location = addressMatch[0].trim();
-      console.log("Found location (full address):", data.location);
-    }
-    
-    // Alternative: Look near the seller info
-    if (data.location === "N/A" && googleReviewsElements.length > 0) {
-      let searchContainer = googleReviewsElements[0];
-      for (let i = 0; i < 5 && searchContainer; i++) {
-        searchContainer = searchContainer.parentElement;
-        if (!searchContainer) break;
         
-        const containerText = searchContainer.textContent;
-        const localAddressMatch = containerText.match(addressPattern);
-        if (localAddressMatch) {
-          data.location = localAddressMatch[0].trim();
-          console.log("Found location near seller info:", data.location);
-          break;
+        // If not found in siblings, check parent and look for text before this rating
+        if (data.sellerName === "N/A") {
+          const parent = ratingEl.parentElement;
+          if (parent) {
+            const siblings = Array.from(parent.children);
+            const ratingIndex = siblings.indexOf(ratingEl);
+            
+            // Look at elements before the rating
+            for (let i = ratingIndex - 1; i >= 0 && i >= ratingIndex - 5; i--) {
+              const text = siblings[i].textContent.trim();
+              
+              if (text && 
+                  text.length >= 2 && 
+                  text.length < 100 && 
+                  !text.includes('★') &&
+                  !text.includes('Google') &&
+                  !text.includes('reviews') &&
+                  !ratingNumberPattern.test(text) &&
+                  !reviewCountPattern.test(text)) {
+                
+                data.sellerName = text;
+                console.log("Found seller name in parent before rating:", data.sellerName);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Look for Google reviews text and find what's above it
+    if (data.sellerName === "N/A") {
+      const googleElements = Array.from(document.querySelectorAll('*'))
+        .filter(el => el.textContent.trim() === 'Google reviews');
+      
+      if (googleElements.length > 0) {
+        const googleEl = googleElements[0];
+        const parent = googleEl.parentElement;
+        
+        if (parent) {
+          // Get all child elements
+          const children = Array.from(parent.children);
+          const googleIndex = children.indexOf(googleEl);
+          
+          // Look backwards from Google reviews
+          for (let i = googleIndex - 1; i >= 0 && i >= googleIndex - 10; i--) {
+            const text = children[i].textContent.trim();
+            
+            // Skip rating numbers and review counts
+            if (/^\d+\.\d+$/.test(text) || /^\(\d+\)$/.test(text)) continue;
+            
+            // If we find text that's not a rating, it's likely the seller name
+            if (text && text.length >= 2 && text.length < 100) {
+              data.sellerName = text;
+              console.log("Found seller name before Google reviews:", data.sellerName);
+              break;
+            }
+          }
         }
       }
     }
