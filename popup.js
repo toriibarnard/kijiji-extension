@@ -447,8 +447,9 @@ document.addEventListener('DOMContentLoaded', function() {
       
       const date = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
       
-      // Create a main folder for all Kijiji data
-      const mainFolder = 'Kijiji Vehicles';
+      // Create a parent folder for all vehicle listings, then subfolder for Kijiji data
+      const parentFolder = 'Vehicle Listings';
+      const mainFolder = `${parentFolder}/Kijiji Vehicles`;
       // Create a subfolder for data exports with today's date
       const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
       const dataDir = `${mainFolder}/data/${today}`;
@@ -481,8 +482,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Export screenshots
   function exportScreenshots(listings) {
-    // Create a main folder for all Kijiji data
-    const mainFolder = 'Kijiji Vehicles';
+    // Create a parent folder for all vehicle listings, then subfolder for Kijiji data
+    const parentFolder = 'Vehicle Listings';
+    const mainFolder = `${parentFolder}/Kijiji Vehicles`;
     // Create a subfolder for screenshots with today's date
     const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
     const screenshotDir = `${mainFolder}/screenshots/${today}`;

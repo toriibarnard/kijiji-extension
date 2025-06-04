@@ -200,8 +200,9 @@ function saveListing(listingData, screenshotDataUrl, callback) {
 function saveScreenshotToFolder(screenshotDataUrl, listingId) {
   console.log("[BG] Saving screenshot to folder");
   
-  // Create a main folder for all Kijiji data
-  const mainFolder = 'Kijiji Vehicles';
+  // Create a parent folder for all vehicle listings, then subfolder for Kijiji data
+  const parentFolder = 'Vehicle Listings';
+  const mainFolder = `${parentFolder}/Kijiji Vehicles`;
   // Create a subfolder for screenshots with today's date
   const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
   const screenshotDir = `${mainFolder}/screenshots/${today}`;
